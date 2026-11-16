@@ -630,6 +630,17 @@ textarea.field{min-height:92px;resize:vertical;font-family:ui-monospace,SFMono-R
 .grow{flex:1 1 auto;min-width:0}
 .nowrap{white-space:nowrap}
 .small{font-size:11px;font-weight:700;color:#9A8875}
+
+/* 가족 실시간 동기화 상태 배지 */
+.sync-row{display:flex;margin-top:7px}
+.sync-pill{
+  display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:800;line-height:1;
+  padding:5px 10px;border-radius:999px;border:1px solid #F2E3C4;color:#8A6A2E;
+  background:linear-gradient(180deg,#FFFDF4,#FFF7E4);transition:background .2s,color .2s,border-color .2s
+}
+.sync-pill.live{background:linear-gradient(180deg,#F2FCF5,#E6F8EC);border-color:#C4E8D1;color:#2F7C4C}
+.sync-pill.poll{background:linear-gradient(180deg,#F4FAFF,#E9F3FE);border-color:#C8DEF5;color:#2C5F8A}
+.sync-pill.offline{background:linear-gradient(180deg,#FFF6F4,#FEECEA);border-color:#F6CFC9;color:#A34438}
 </style>
 </head>
 <body>
@@ -649,6 +660,7 @@ textarea.field{min-height:92px;resize:vertical;font-family:ui-monospace,SFMono-R
       </div>
       <div class="note-pill">✨ 오늘도 함께 기록해요</div>
     </div>
+    <div class="sync-row"><div class="sync-pill start" id="syncPill" aria-live="polite">🟡 가족 동기화 연결 중…</div></div>
   </header>
 
   <main>
@@ -689,6 +701,9 @@ textarea.field{min-height:92px;resize:vertical;font-family:ui-monospace,SFMono-R
 <div class="modal" id="modal" hidden><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast"></div>
 <input type="file" id="photoInput" accept="image/*" hidden>
+
+<!-- 가족 실시간 동기화(Supabase) 클라이언트 — 막히면 앱이 자동으로 몇 초 주기 동기화로 대체합니다 -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script>
 (function () {
 'use strict';
@@ -1007,10 +1022,11 @@ function defaultState() {
 }
 
 let storageOk = true;
+let localExisted = true;   /* 이 기기에 이미 기록이 있었는지 (새 기기면 서버 기록을 먼저 받아 옵니다) */
 function loadState() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return defaultState();
+    if (!raw) { localExisted = false; return defaultState(); }
     return migrate(JSON.parse(raw));
   } catch (e) {
     if (e && e.name === 'SecurityError') storageOk = false;
@@ -1068,10 +1084,15 @@ function migrate(s) {
   });
   return out;
 }
-function save() {
+function persist() {
   state.savedAt = new Date().toISOString();
   try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); storageOk = true; }
   catch (e) { storageOk = false; }
+}
+function save() {
+  persist();
+  /* 이 기기에 먼저 저장한 뒤, 가족 클라우드에도 조용히 올립니다 (오프라인이면 자동으로 나중에) */
+  queueSync();
 }
 
 let state = loadState();
@@ -1741,14 +1762,18 @@ function openSettings() {
       '<button class="ava-pick" data-act="settings-photo" data-id="' + id + '">' +
       '<span class="ava">' + avatar(id) + '</span><span class="n">' + esc(name(id)) + '</span>' +
       '<span class="u">사진 바꾸기</span></button>').join('') + '</div></div>' +
-    '<div class="sheet-sec"><div class="st">☁️ 동기화</div>' +
-    '<div class="kv"><span>저장 위치</span><b>' + (storageOk ? '이 기기(브라우저 저장소)' : '이 기기 · 저장 제한 있음') + '</b></div>' +
-    '<div class="kv"><span>마지막 저장</span><b>' + savedTxt + '</b></div>' +
+    '<div class="sheet-sec"><div class="st">☁️ 가족 실시간 동기화</div>' +
+    '<div class="kv"><span>상태</span><b>' + (SYNC_TEXT[syncStatus] || SYNC_TEXT.start) + '</b></div>' +
+    '<div class="kv"><span>마지막 동기화</span><b>' + (syncLastSyncAt ? hm(syncLastSyncAt) : '아직') + '</b></div>' +
+    '<div class="kv"><span>이 기기 저장</span><b>' + (storageOk ? '정상' : '제한 있음') + ' · ' + savedTxt + '</b></div>' +
     '<div class="kv"><span>기록량</span><b>' + (JSON.stringify(state).length / 1024).toFixed(1) + ' KB</b></div>' +
-    '<div class="hint" style="margin-top:6px">동기화 코드를 복사해 다른 기기에 붙여넣으면 같은 기록으로 이어서 쓸 수 있어요. (실시간 동기화는 정식 버전에서 연결할 수 있어요)</div>' +
+    '<div class="hint" style="margin-top:6px">가족 폰이 같은 기록을 함께 봐요. 한 폰에서 체크·스티커·가족톡을 하면 다른 폰에 바로 나타나고, 인터넷이 끊겨도 이 기기에는 계속 저장됐다가 다시 연결되면 맞춰져요.</div>' +
+    '<div class="sheet-acts"><button class="btn primary" data-act="sync-now">지금 동기화</button></div>' +
+    '<div class="st" style="margin-top:14px">🔑 기록 백업 코드</div>' +
+    '<div class="hint">혹시 모를 때를 위한 백업이에요. 코드를 복사해 두면 다른 곳에서도 되살릴 수 있어요.</div>' +
     '<textarea class="field" id="syncBox" spellcheck="false" style="margin-top:7px" placeholder="여기에 동기화 코드를 붙여넣고 아래 버튼을 눌러 주세요">' + encodeState() + '</textarea>' +
     '<div class="sheet-acts"><button class="btn" data-act="sync-copy">코드 복사</button>' +
-    '<button class="btn primary" data-act="sync-apply">붙여넣은 코드 불러오기</button></div></div>' +
+    '<button class="btn" data-act="sync-apply">붙여넣은 코드 불러오기</button></div></div>' +
     '<div class="sheet-sec"><div class="st">🧹 초기화</div>' +
     '<div class="hint">체크만 지우거나, 모든 기록을 처음 상태로 되돌릴 수 있어요.</div>' +
     '<div class="sheet-acts"><button class="btn" data-act="todos-reset">오늘 체크 초기화</button>' +
@@ -2200,6 +2225,7 @@ document.addEventListener('click', function (ev) {
 
     /* 설정 */
     case 'open-settings': openSettings(); break;
+    case 'sync-now': closeSheet(); syncNow(); break;
     case 'settings-photo': photoTarget = id; $('#photoInput').click(); break;
     case 'sync-copy': {
       const box = $('#syncBox');
@@ -2280,6 +2306,488 @@ document.addEventListener('keydown', function (e) {
 });
 
 /* =========================================================
+   7-B. 가족 실시간 동기화 (Supabase 무료 클라우드 DB)
+   ---------------------------------------------------------
+   · 이 기기 기록은 늘 localStorage에 먼저 저장 → 오프라인에서도 그대로 동작
+   · 온라인이면 Supabase의 family_state 한 줄(yulhan_main)과 자동으로 맞춤
+   · 항목(id)마다 '마지막으로 바뀐 시각'(_t)을 비교해 합치므로
+     두 폰에서 동시에 체크·스티커·채팅을 해도 서로 덮어쓰지 않습니다.
+   · 지운 항목은 del(묘비)에 시각과 함께 남겨 다른 폰에서도 지워집니다.
+   · 화면 선택(ui)·마지막으로 연 날짜는 기기마다 다른 값이라 동기화하지 않습니다.
+   ========================================================= */
+const SUPABASE_URL = 'https://vxhixyiuysgcpsecmcvr.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZ4aGl4eWl1eXNnY3BzZWNtY3ZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ3Nzk5OTcsImV4cCI6MjExMDM1NTk5N30.yyutJHhEofrNZPx2Siq5jVFffCkKmmMAlza0Cx-Y0qs';
+const SYNC_ROW = 'yulhan_main';
+const SYNC_ENDPOINT = SUPABASE_URL + '/rest/v1/family_state';
+
+let syncPrevWire = null;     /* 마지막으로 맞춘 문서 (변경 감지 기준) */
+let syncRemoteWire = null;   /* 서버에서 마지막으로 받은 문서 */
+let syncDel = {};            /* 이 기기에서 지운 항목의 묘비 */
+let syncSeeded = false;      /* 서버 기록을 이미 받아 왔는지 */
+let syncStatus = 'start';    /* start | live | poll | offline */
+let syncBusy = false;
+let syncPushTimer = null;
+let syncPullTimer = null;
+let syncLastSyncAt = 0;
+let syncLastError = '';
+let syncRealtimeOk = false;
+let syncEverLinked = false;   /* 한 번이라도 가족 클라우드와 맞춰본 기기인지 */
+try { syncEverLinked = localStorage.getItem(STORE_KEY + '.linked') === '1'; } catch (e) { syncEverLinked = false; }
+
+function markLinked() {
+  if (syncEverLinked) return;
+  syncEverLinked = true;
+  try { localStorage.setItem(STORE_KEY + '.linked', '1'); } catch (e) { /* 무시 */ }
+}
+
+const SYNC_TEXT = {
+  start: '🟡 가족 동기화 연결 중…',
+  live: '🟢 가족 실시간 연결됨',
+  poll: '🟢 가족과 동기화 중',
+  offline: '🟡 오프라인 · 이 기기 저장 중'
+};
+
+function syncHeaders(extra) {
+  return Object.assign({
+    apikey: SUPABASE_ANON_KEY,
+    Authorization: 'Bearer ' + SUPABASE_ANON_KEY
+  }, extra || {});
+}
+
+function setSync(s) {
+  if (syncStatus === s) return;
+  syncStatus = s;
+  paintSync();
+}
+
+function paintSync() {
+  const el = $('#syncPill');
+  if (!el) return;
+  el.className = 'sync-pill ' + syncStatus;
+  el.textContent = SYNC_TEXT[syncStatus] || SYNC_TEXT.start;
+  el.title = syncLastSyncAt
+    ? '마지막 동기화 ' + hm(syncLastSyncAt) + (syncLastError ? ' · ' + syncLastError : '')
+    : '가족 클라우드와 연결하는 중이에요';
+}
+
+/* ---------- 1) 문서 만들기 (이 기기 상태 → 서버에 보낼 한 덩어리) ---------- */
+function metaSig(it) {
+  const c = {};
+  Object.keys(it).forEach(k => { if (k !== '_t' && k !== '_o') c[k] = it[k]; });
+  return JSON.stringify(c);
+}
+
+function cloneJSON(o) { return JSON.parse(JSON.stringify(o)); }
+
+/* 목록을 훑어 바뀐 항목에만 시각(_t)을 새로 찍고, 사라진 항목은 묘비로 남깁니다
+   (서버로 보내는 사본을 따로 만들어 비교해야 이 기기 상태를 고친 것이 잡힙니다) */
+function stampList(prevList, list, prefix, now) {
+  const prevById = {};
+  (prevList || []).forEach(it => { if (it && it.id) prevById[it.id] = it; });
+  const seen = {};
+  const out = (list || []).map(function (it, i) {
+    const p = prevById[it.id];
+    const changed = !p || metaSig(p) !== metaSig(it);
+    const c = cloneJSON(it);
+    c._t = changed ? now : (p._t || 0);
+    c._o = (p && p._o) ? p._o : now + i * 0.001;
+    it._t = c._t;
+    it._o = c._o;
+    seen[it.id] = true;
+    return c;
+  });
+  (prevList || []).forEach(function (p) {
+    if (p && p.id && !seen[p.id]) syncDel[prefix + ':' + p.id] = now;
+  });
+  return out;
+}
+
+function buildWire() {
+  const now = Date.now();
+  const prev = syncPrevWire || null;
+  const w = {
+    v: 3, t: now,
+    members: {}, todos: {}, study: {}, stickers: {}, stamps: {},
+    mission: null, chat: { messages: [] }, del: {}
+  };
+
+  ORDER.forEach(function (id) {
+    /* 가족 프로필 — 기본 캐릭터 사진은 코드에 있으니 DB에는 바꾼 사진만 */
+    const m = state.members[id] || {};
+    const ph = (m.photo && m.photo !== PHOTOS[id]) ? m.photo : '';
+    const pm = prev && prev.members ? prev.members[id] : null;
+    w.members[id] = {
+      name: m.name || MEMBERS[id].name,
+      photo: ph,
+      _t: (pm && pm.name === (m.name || MEMBERS[id].name) && (pm.photo || '') === ph) ? (pm._t || 0) : now
+    };
+
+    w.todos[id] = stampList(prev && prev.todos ? prev.todos[id] : null, state.todos[id] || [], 'todos.' + id, now);
+
+    if (KIDS.indexOf(id) >= 0) {
+      w.study[id] = stampList(prev && prev.study ? prev.study[id] : null, state.study[id] || [], 'study.' + id, now);
+
+      const st = stickerState(id);
+      const ps = prev && prev.stickers ? prev.stickers[id] : null;
+      const entries = stampList(ps ? ps.entries : null, st.entries || [], 'stickers.' + id, now);
+      const boardsChanged = !ps || Number(ps.boards) !== (Number(st.boards) || 0);
+      w.stickers[id] = {
+        boards: Number(st.boards) || 0,
+        _t: boardsChanged ? now : (ps._t || 0),
+        entries: entries
+      };
+
+      /* 도장 — 날짜별로 찍힌 시각을 남깁니다 */
+      const cur = state.stamps[id] || {};
+      const pst = prev && prev.stamps ? (prev.stamps[id] || {}) : {};
+      const stamps = {};
+      Object.keys(cur).forEach(function (d) {
+        if (!cur[d]) return;
+        stamps[d] = typeof cur[d] === 'number' ? cur[d] : (pst[d] || now);
+      });
+      Object.keys(pst).forEach(function (d) { if (!stamps[d]) syncDel['stamps.' + id + ':' + d] = now; });
+      w.stamps[id] = stamps;
+    }
+  });
+
+  const mis = state.mission || {};
+  const pmis = prev && prev.mission;
+  w.mission = {
+    date: mis.date, id: mis.id, doneCount: Number(mis.doneCount) || 0,
+    _t: (pmis && pmis.date === mis.date && pmis.id === mis.id && (Number(pmis.doneCount) || 0) === (Number(mis.doneCount) || 0)) ? (pmis._t || 0) : now
+  };
+
+  w.chat.messages = stampList(prev && prev.chat ? prev.chat.messages : null, state.chat.messages || [], 'chat', now);
+
+  /* 묘비는 30일이 지나면 정리 */
+  const cut = now - 30 * 864e5;
+  const del = {};
+  Object.keys(syncDel).forEach(k => { if (syncDel[k] > cut) del[k] = syncDel[k]; });
+  const pdel = (prev && prev.del) || {};
+  Object.keys(pdel).forEach(k => { if (del[k] === undefined && pdel[k] > cut) del[k] = pdel[k]; });
+  w.del = del;
+  syncDel = Object.assign({}, del);
+  return w;
+}
+
+/* ---------- 2) 두 문서 합치기 (항목별 마지막 변경이 이김) ---------- */
+function mergeList(la, lb, prefix, del) {
+  const map = {};
+  (la || []).forEach(it => { if (it && it.id) map[it.id] = it; });
+  (lb || []).forEach(it => {
+    if (!it || !it.id) return;
+    const cur = map[it.id];
+    if (!cur || (it._t || 0) > (cur._t || 0)) map[it.id] = it;
+  });
+  const out = [];
+  Object.keys(map).forEach(function (k) {
+    const it = map[k];
+    const dt = del[prefix + ':' + k] || 0;
+    if (dt && dt >= (it._t || 0)) return;
+    out.push(it);
+  });
+  out.sort(function (x, y) {
+    return ((x._o || 0) - (y._o || 0)) || ((x.at || 0) - (y.at || 0));
+  });
+  return out;
+}
+
+function mergeWire(a, b) {
+  if (!a) return b ? JSON.parse(JSON.stringify(b)) : buildWire();
+  if (!b) return JSON.parse(JSON.stringify(a));
+  const out = {
+    v: 3, t: Math.max(a.t || 0, b.t || 0),
+    members: {}, todos: {}, study: {}, stickers: {}, stamps: {},
+    mission: null, chat: { messages: [] }, del: {}
+  };
+
+  const del = {};
+  [a.del || {}, b.del || {}].forEach(m => Object.keys(m).forEach(k => {
+    del[k] = Math.max(Number(del[k]) || 0, Number(m[k]) || 0);
+  }));
+  out.del = del;
+
+  ORDER.forEach(function (id) {
+    const am = (a.members || {})[id] || {};
+    const bm = (b.members || {})[id] || {};
+    out.members[id] = (!am._t && bm._t) ? bm : ((bm._t || 0) > (am._t || 0) ? bm : am);
+
+    out.todos[id] = mergeList((a.todos || {})[id], (b.todos || {})[id], 'todos.' + id, del);
+
+    if (KIDS.indexOf(id) >= 0) {
+      out.study[id] = mergeList((a.study || {})[id], (b.study || {})[id], 'study.' + id, del);
+
+      const as = (a.stickers || {})[id] || { entries: [] };
+      const bs = (b.stickers || {})[id] || { entries: [] };
+      const boards = (!as._t) ? bs : ((bs._t || 0) > (as._t || 0) ? bs : as);
+      out.stickers[id] = {
+        boards: Number(boards.boards) || 0,
+        _t: Number(boards._t) || 0,
+        entries: mergeList(as.entries, bs.entries, 'stickers.' + id, del)
+      };
+
+      const st = {};
+      [(a.stamps || {})[id] || {}, (b.stamps || {})[id] || {}].forEach(m => Object.keys(m).forEach(function (d) {
+        st[d] = Math.max(Number(st[d]) || 0, Number(m[d]) || 0);
+      }));
+      Object.keys(st).forEach(function (d) {
+        const dt = del['stamps.' + id + ':' + d] || 0;
+        if (dt && dt >= st[d]) delete st[d];
+      });
+      out.stamps[id] = st;
+    }
+  });
+
+  const amm = a.mission || {};
+  const bmm = b.mission || {};
+  out.mission = (bmm._t || 0) > (amm._t || 0) ? bmm : amm;
+
+  out.chat.messages = mergeList((a.chat || {}).messages, (b.chat || {}).messages, 'chat', del);
+  return out;
+}
+
+/* ---------- 3) 문서 → 이 기기 상태 ---------- */
+function wireToState(w) {
+  const next = {
+    members: {}, todos: {}, study: {}, stickers: {}, stamps: {},
+    mission: {}, chat: { messages: [] }
+  };
+  ORDER.forEach(function (id) {
+    const m = w.members[id] || {};
+    const cur = state.members[id] || {};
+    next.members[id] = {
+      name: m.name || cur.name || MEMBERS[id].name,
+      photo: m.photo || PHOTOS[id]
+    };
+    next.todos[id] = (w.todos[id] || []).map(x => cloneJSON(x));
+    if (KIDS.indexOf(id) >= 0) {
+      next.study[id] = (w.study[id] || []).map(x => cloneJSON(x));
+      const s = w.stickers[id] || { entries: [] };
+      next.stickers[id] = {
+        boards: Number(s.boards) || 0,
+        entries: (s.entries || []).map(x => cloneJSON(x))
+      };
+      const st = {};
+      const ws = w.stamps[id] || {};
+      Object.keys(ws).forEach(function (d) { st[d] = true; });
+      next.stamps[id] = st;
+    }
+  });
+  next.mission = Object.assign({}, w.mission || state.mission);
+  next.chat = { messages: ((w.chat || {}).messages || []).map(x => cloneJSON(x)) };
+  return next;
+}
+
+function contentSig(s) {
+  try {
+    return JSON.stringify({
+      members: s.members, todos: s.todos, study: s.study, stickers: s.stickers,
+      stamps: s.stamps, mission: s.mission, chat: s.chat
+    }, function (k, v) { return (k === '_t' || k === '_o') ? undefined : v; });
+  } catch (e) { return String(Math.random()); }
+}
+
+function syncRender() {
+  const act = document.activeElement;
+  const typing = act && act.id === 'chatInput';
+  const pos = typing ? [act.selectionStart, act.selectionEnd] : null;
+  renderAll();
+  if (typing) {
+    const el = $('#chatInput');
+    if (el) {
+      el.focus();
+      try { el.setSelectionRange(pos[0], pos[1]); } catch (e) { /* 무시 */ }
+    }
+  }
+}
+
+/* 이 기기에만 있는 내용(다른 폰이 아직 못 받은 것)이 있는지 */
+function hasExtra(a, b) {
+  let extra = false;
+  const check = function (la, lb) {
+    const ids = {};
+    (lb || []).forEach(it => { if (it && it.id) ids[it.id] = true; });
+    (la || []).forEach(it => { if (it && it.id && !ids[it.id]) extra = true; });
+  };
+  ORDER.forEach(function (id) {
+    check(a.todos[id], b.todos[id]);
+    if (KIDS.indexOf(id) >= 0) {
+      check(a.study[id], b.study[id]);
+      check((a.stickers[id] || {}).entries, (b.stickers[id] || {}).entries);
+    }
+  });
+  check(a.chat.messages, b.chat.messages);
+  const bd = b.del || {};
+  Object.keys(a.del || {}).forEach(function (k) {
+    if (!bd[k] || bd[k] < a.del[k]) extra = true;
+  });
+  return extra;
+}
+
+/* ---------- 4) 서버에서 받기 ---------- */
+function syncApplyRemote(remote) {
+  if (!remote || typeof remote !== 'object' || (!remote.v && !remote.members)) return;
+  syncSeeded = true;
+  const local = buildWire();
+  const merged = mergeWire(local, remote);
+  syncRemoteWire = remote;
+
+  const next = wireToState(merged);
+  const changed = contentSig(state) !== contentSig(next);
+  if (changed) {
+    state.members = next.members;
+    state.todos = next.todos;
+    state.study = next.study;
+    state.stickers = next.stickers;
+    state.stamps = next.stamps;
+    state.mission = next.mission;
+    state.chat = next.chat;
+    persist();
+    syncRender();
+  }
+  syncPrevWire = merged;
+  syncLastSyncAt = Date.now();
+  markLinked();
+  setSync(syncRealtimeOk ? 'live' : 'poll');
+  if (hasExtra(local, remote)) queueSync();
+}
+
+async function syncPull() {
+  if (navigator.onLine === false) { setSync('offline'); return; }
+  try {
+    const res = await fetch(SYNC_ENDPOINT + '?id=eq.' + encodeURIComponent(SYNC_ROW) + '&select=data,updated_at', {
+      headers: syncHeaders(), cache: 'no-store'
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const rows = await res.json();
+    const data = rows && rows[0] ? rows[0].data : null;
+    syncLastError = '';
+    const usable = !!(data && Number(data.v) >= 3 && data.members && data.todos && data.study && data.stickers && data.chat);
+    if (!usable) {                    /* 서버가 비어 있거나 이전 형식이면 이 기기 기록을 올립니다 */
+      syncSeeded = true;
+      markLinked();
+      setSync(syncRealtimeOk ? 'live' : 'poll');
+      queueSync();
+      return;
+    }
+    if (!syncSeeded || !syncEverLinked) {   /* 처음 연결한 기기: 가족 클라우드 기록을 그대로 받아 시작 */
+      const next = wireToState(data);
+      state.members = next.members;
+      state.todos = next.todos;
+      state.study = next.study;
+      state.stickers = next.stickers;
+      state.stamps = next.stamps;
+      state.mission = next.mission;
+      state.chat = next.chat;
+      persist();
+      renderAll();
+      syncPrevWire = data;
+      syncRemoteWire = data;
+      syncSeeded = true;
+      markLinked();
+      syncLastSyncAt = Date.now();
+      setSync(syncRealtimeOk ? 'live' : 'poll');
+      return;
+    }
+    if (JSON.stringify(data) === JSON.stringify(syncRemoteWire)) {
+      syncLastSyncAt = Date.now();
+      setSync(syncRealtimeOk ? 'live' : 'poll');
+      return;
+    }
+    syncApplyRemote(data);
+  } catch (e) {
+    syncLastError = String((e && e.message) || e);
+    setSync('offline');
+  }
+}
+
+/* ---------- 5) 서버에 올리기 ---------- */
+function queueSync() {
+  if (syncPushTimer) return;
+  syncPushTimer = setTimeout(function () {
+    syncPushTimer = null;
+    syncPush();
+  }, 340);
+}
+
+async function syncPush() {
+  /* 새 기기는 서버 기록을 먼저 받아 온 뒤에 올립니다 (기본값으로 덮어쓰지 않도록) */
+  if (!syncSeeded) return;
+  if (syncBusy) { queueSync(); return; }
+  syncBusy = true;
+  const body = syncRemoteWire ? mergeWire(buildWire(), syncRemoteWire) : buildWire();
+  try {
+    const res = await fetch(SYNC_ENDPOINT + '?id=eq.' + encodeURIComponent(SYNC_ROW), {
+      method: 'PATCH',
+      headers: syncHeaders({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }),
+      body: JSON.stringify({ data: body, updated_at: new Date().toISOString() })
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    syncPrevWire = body;
+    syncLastSyncAt = Date.now();
+    syncLastError = '';
+    markLinked();
+    setSync(syncRealtimeOk ? 'live' : 'poll');
+  } catch (e) {
+    syncLastError = String((e && e.message) || e);
+    setSync('offline');
+  } finally {
+    syncBusy = false;
+    paintSync();
+  }
+}
+
+function syncNow() {
+  syncPull().then(function () { queueSync(); });
+  toast('가족 기록과 맞추는 중이에요');
+}
+
+/* ---------- 6) 실시간(Realtime) 구독 + 보조 폴링 ---------- */
+function syncRealtime() {
+  if (!(window.supabase && window.supabase.createClient)) return;
+  try {
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false }
+    });
+    sb.channel('family-log-' + Math.random().toString(36).slice(2))
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'family_state', filter: 'id=eq.' + SYNC_ROW
+      }, function (payload) {
+        const data = payload && payload.new ? payload.new.data : null;
+        if (data) syncApplyRemote(data);
+      })
+      .subscribe(function (status) {
+        if (status === 'SUBSCRIBED') { syncRealtimeOk = true; setSync('live'); }
+        else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          syncRealtimeOk = false;
+          setSync(navigator.onLine === false ? 'offline' : 'poll');
+        }
+      });
+  } catch (e) {
+    syncRealtimeOk = false;
+  }
+}
+
+function syncStart() {
+  syncStatus = 'start';
+  paintSync();
+  syncSeeded = localExisted;
+  syncPull();
+  syncRealtime();
+
+  syncPullTimer = setInterval(function () {
+    if (document.hidden) return;
+    if (syncRealtimeOk && Date.now() - syncLastSyncAt < 6000) return;
+    syncPull();
+  }, 2500);
+
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) syncPull(); });
+  window.addEventListener('focus', function () { syncPull(); });
+  window.addEventListener('online', function () { toast('다시 연결됐어요 · 기록을 맞추는 중'); syncPull(); queueSync(); });
+  window.addEventListener('offline', function () { setSync('offline'); });
+}
+
+/* =========================================================
    8. 시작
    ========================================================= */
 $('#logo').innerHTML = LOGO;
@@ -2294,10 +2802,15 @@ $('#logo').innerHTML = LOGO;
   save();
   renderAll();
   loadWeather();
+  syncStart();
   window.addEventListener('beforeunload', save);
 })();
 
-window.FAMILY_LOG = { get state() { return state; }, save: save };
+window.FAMILY_LOG = {
+  get state() { return state; },
+  save: save,
+  sync: { pull: syncPull, push: syncPush, now: syncNow, status: function () { return syncStatus; } }
+};
 })();
 </script>
 </body>
