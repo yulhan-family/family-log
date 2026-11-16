@@ -962,11 +962,11 @@ function dateLabel(key) {
 }
 function name(id) { return (state.members[id] && state.members[id].name) || MEMBERS[id].name; }
 
-function todoItem(text) { return { id: uid(), text: text, done: false, doneDate: null }; }
+function todoItem(text, id) { return { id: id || uid(), text: text, done: false, doneDate: null }; }
 function studyItem(text, count, opt) {
   opt = opt || {};
   return {
-    id: uid(), text: text, count: Math.max(1, Number(count) || 1), tag: opt.tag || guessTag(text),
+    id: opt.id || uid(), text: text, count: Math.max(1, Number(count) || 1), tag: opt.tag || guessTag(text),
     pinned: opt.pinned !== false, doneDate: null,
     weeklyGoal: opt.weeklyGoal || 0, weekDays: [], weekend: !!opt.weekend
   };
@@ -983,23 +983,23 @@ function defaultState() {
     },
     ui: { tab: 'home', studyChild: 'yul', stickerChild: 'yul', stampChild: 'yul', me: 'yul', timerMode: 'left', timerMinutes: 10 },
     todos: {
-      yul: [todoItem('영어숙제'), todoItem('수학숙제'), todoItem('한자'), todoItem('연산문제집'), todoItem('책 20분 읽기'), todoItem('내일 준비물 챙기기')],
-      han: [todoItem('영어숙제'), todoItem('수학숙제'), todoItem('한자'), todoItem('하.삼.글'), todoItem('책 20분 읽기'), todoItem('내일 준비물 챙기기')],
-      mom: [todoItem('아이들 영양제 챙기기'), todoItem('아이들 도장판 확인하기')],
-      dad: [todoItem('분리수거'), todoItem('주말 장보기 목록 정리')]
+      yul: [todoItem('영어숙제', 'd-todo-yul-1'), todoItem('수학숙제', 'd-todo-yul-2'), todoItem('한자', 'd-todo-yul-3'), todoItem('연산문제집', 'd-todo-yul-4'), todoItem('책 20분 읽기', 'd-todo-yul-5'), todoItem('내일 준비물 챙기기', 'd-todo-yul-6')],
+      han: [todoItem('영어숙제', 'd-todo-han-1'), todoItem('수학숙제', 'd-todo-han-2'), todoItem('한자', 'd-todo-han-3'), todoItem('하.삼.글', 'd-todo-han-4'), todoItem('책 20분 읽기', 'd-todo-han-5'), todoItem('내일 준비물 챙기기', 'd-todo-han-6')],
+      mom: [todoItem('아이들 영양제 챙기기', 'd-todo-mom-1'), todoItem('아이들 도장판 확인하기', 'd-todo-mom-2')],
+      dad: [todoItem('분리수거', 'd-todo-dad-1'), todoItem('주말 장보기 목록 정리', 'd-todo-dad-2')]
     },
     study: {
       yul: [
-        studyItem('영어숙제', 1, { tag: '영어' }), studyItem('수학숙제', 1, { tag: '수학' }), studyItem('한자', 1, { tag: '한자' }),
-        studyItem('주 2회 인강 듣기', 1, { weeklyGoal: 2, tag: '인강' }),
-        studyItem('주말 오전 숙제', 1, { weekend: true, tag: '주말' }),
-        studyItem('연산문제집', 1, { tag: '연산' })
+        studyItem('영어숙제', 1, { tag: '영어', id: 'd-study-yul-1' }), studyItem('수학숙제', 1, { tag: '수학', id: 'd-study-yul-2' }), studyItem('한자', 1, { tag: '한자', id: 'd-study-yul-3' }),
+        studyItem('주 2회 인강 듣기', 1, { weeklyGoal: 2, tag: '인강', id: 'd-study-yul-4' }),
+        studyItem('주말 오전 숙제', 1, { weekend: true, tag: '주말', id: 'd-study-yul-5' }),
+        studyItem('연산문제집', 1, { tag: '연산', id: 'd-study-yul-6' })
       ],
       han: [
-        studyItem('영어숙제', 1, { tag: '영어' }), studyItem('수학숙제', 1, { tag: '수학' }), studyItem('한자', 1, { tag: '한자' }),
-        studyItem('주 2회 인강 듣기', 1, { weeklyGoal: 2, tag: '인강' }),
-        studyItem('주말 오전 숙제', 1, { weekend: true, tag: '주말' }),
-        studyItem('하.삼.글', 1, { tag: '한글' })
+        studyItem('영어숙제', 1, { tag: '영어', id: 'd-study-han-1' }), studyItem('수학숙제', 1, { tag: '수학', id: 'd-study-han-2' }), studyItem('한자', 1, { tag: '한자', id: 'd-study-han-3' }),
+        studyItem('주 2회 인강 듣기', 1, { weeklyGoal: 2, tag: '인강', id: 'd-study-han-4' }),
+        studyItem('주말 오전 숙제', 1, { weekend: true, tag: '주말', id: 'd-study-han-5' }),
+        studyItem('하.삼.글', 1, { tag: '한글', id: 'd-study-han-6' })
       ]
     },
     stickers: {
@@ -1010,10 +1010,10 @@ function defaultState() {
     mission: { date: t, id: 'dinner', doneCount: 0 },
     chat: {
       messages: [
-        { id: uid(), by: 'mom', text: '율아 한아 오늘도 화이팅! 엄마가 응원해 💪', at: now - 3 * 3600e3, hearts: ['dad'] },
-        { id: uid(), by: 'han', sticker: 'love', at: now - 2.6 * 3600e3, hearts: ['mom'] },
-        { id: uid(), by: 'dad', text: '오늘 저녁은 아빠가 김치볶음밥 해줄게 🍳', at: now - 90 * 60e3, hearts: ['yul', 'han'] },
-        { id: uid(), by: 'yul', text: '좋아요!! 숙제 먼저 하고 갈게요', at: now - 80 * 60e3, hearts: [] }
+        { id: 'd-chat-1', by: 'mom', text: '율아 한아 오늘도 화이팅! 엄마가 응원해 💪', at: now - 3 * 3600e3, hearts: ['dad'] },
+        { id: 'd-chat-2', by: 'han', sticker: 'love', at: now - 2.6 * 3600e3, hearts: ['mom'] },
+        { id: 'd-chat-3', by: 'dad', text: '오늘 저녁은 아빠가 김치볶음밥 해줄게 🍳', at: now - 90 * 60e3, hearts: ['yul', 'han'] },
+        { id: 'd-chat-4', by: 'yul', text: '좋아요!! 숙제 먼저 하고 갈게요', at: now - 80 * 60e3, hearts: [] }
       ]
     },
     lastOpen: t,
@@ -2340,6 +2340,21 @@ function markLinked() {
   try { localStorage.setItem(STORE_KEY + '.linked', '1'); } catch (e) { /* 무시 */ }
 }
 
+/* 아직 아무것도 적지 않은 기기(체크·스티커·도장·채팅 모두 기본값)인지 */
+function looksUntouched(s) {
+  if (!s) return true;
+  const anyTodo = ORDER.some(id => (s.todos[id] || []).some(t => t.done));
+  const anyStudy = KIDS.some(k => (s.study[k] || []).some(i => i.doneDate));
+  const anySticker = KIDS.some(k => {
+    const st = s.stickers[k] || {};
+    return ((st.entries || []).length > 0) || ((Number(st.boards) || 0) > 0);
+  });
+  const anyStamp = KIDS.some(k => Object.keys(s.stamps[k] || {}).length > 0);
+  const chatHeavy = ((s.chat || {}).messages || []).length > 4;
+  const missionDone = Number((s.mission || {}).doneCount) || 0;
+  return !anyTodo && !anyStudy && !anySticker && !anyStamp && !chatHeavy && missionDone === 0;
+}
+
 const SYNC_TEXT = {
   start: '🟡 가족 동기화 연결 중…',
   live: '🟢 가족 실시간 연결됨',
@@ -2670,7 +2685,7 @@ async function syncPull() {
       queueSync();
       return;
     }
-    if (!syncSeeded || !syncEverLinked) {   /* 처음 연결한 기기: 가족 클라우드 기록을 그대로 받아 시작 */
+    if (!syncSeeded || (!syncEverLinked && looksUntouched(state))) {   /* 처음 연결한 기기: 가족 클라우드 기록을 그대로 받아 시작 */
       const next = wireToState(data);
       state.members = next.members;
       state.todos = next.todos;
